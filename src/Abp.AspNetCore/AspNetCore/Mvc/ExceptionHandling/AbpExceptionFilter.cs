@@ -37,6 +37,11 @@ namespace Abp.AspNetCore.Mvc.ExceptionHandling
 
         public void OnException(ExceptionContext context)
         {
+            if (!context.ActionDescriptor.IsControllerAction())
+            {
+                return;
+            }
+
             var wrapResultAttribute =
                 ReflectionHelper.GetSingleAttributeOfMemberOrDeclaringTypeOrDefault(
                     context.ActionDescriptor.GetMethodInfo(),
@@ -48,20 +53,22 @@ namespace Abp.AspNetCore.Mvc.ExceptionHandling
                 LogHelper.LogException(Logger, context.Exception);
             }
 
-            if (wrapResultAttribute.WrapOnError)
-            {
-                HandleAndWrapException(context);
-            }
+            HandleAndWrapException(context, wrapResultAttribute);
         }
 
-        private void HandleAndWrapException(ExceptionContext context)
+        protected virtual void HandleAndWrapException(ExceptionContext context, WrapResultAttribute wrapResultAttribute)
         {
             if (!ActionResultHelper.IsObjectResult(context.ActionDescriptor.GetMethodInfo().ReturnType))
             {
                 return;
             }
 
-            context.HttpContext.Response.StatusCode = GetStatusCode(context);
+            context.HttpContext.Response.StatusCode = GetStatusCode(context, wrapResultAttribute.WrapOnError);
+
+            if (!wrapResultAttribute.WrapOnError)
+            {
+                return;
+            }
 
             context.Result = new ObjectResult(
                 new AjaxResponse(
@@ -75,7 +82,7 @@ namespace Abp.AspNetCore.Mvc.ExceptionHandling
             context.Exception = null; //Handled!
         }
 
-        private int GetStatusCode(ExceptionContext context)
+        protected virtual int GetStatusCode(ExceptionContext context, bool wrapOnError)
         {
             if (context.Exception is AbpAuthorizationException)
             {
@@ -94,7 +101,12 @@ namespace Abp.AspNetCore.Mvc.ExceptionHandling
                 return (int)HttpStatusCode.NotFound;
             }
 
-            return (int)HttpStatusCode.InternalServerError;
+            if (wrapOnError)
+            {
+                return (int)HttpStatusCode.InternalServerError;
+            }
+
+            return context.HttpContext.Response.StatusCode;
         }
     }
 }

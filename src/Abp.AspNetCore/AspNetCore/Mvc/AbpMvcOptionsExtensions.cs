@@ -16,7 +16,8 @@ namespace Abp.AspNetCore.Mvc
         public static void AddAbp(this MvcOptions options, IServiceCollection services)
         {
             AddConventions(options, services);
-            AddFilters(options);
+            AddActionFilters(options);
+            AddPageFilters(options);
             AddModelBinders(options);
         }
 
@@ -25,7 +26,7 @@ namespace Abp.AspNetCore.Mvc
             options.Conventions.Add(new AbpAppServiceConvention(services));
         }
 
-        private static void AddFilters(MvcOptions options)
+        private static void AddActionFilters(MvcOptions options)
         {
             options.Filters.AddService(typeof(AbpAuthorizationFilter));
             options.Filters.AddService(typeof(AbpAuditActionFilter));
@@ -35,9 +36,17 @@ namespace Abp.AspNetCore.Mvc
             options.Filters.AddService(typeof(AbpResultFilter));
         }
 
+        private static void AddPageFilters(MvcOptions options)
+        {
+            options.Filters.AddService(typeof(AbpUowPageFilter));
+            options.Filters.AddService(typeof(AbpAuditPageFilter));
+            options.Filters.AddService(typeof(AbpResultPageFilter));
+            options.Filters.AddService(typeof(AbpExceptionPageFilter));
+        }
+
         private static void AddModelBinders(MvcOptions options)
         {
-            options.ModelBinderProviders.Add(new AbpDateTimeModelBinderProvider());
+            options.ModelBinderProviders.Insert(0, new AbpDateTimeModelBinderProvider());
         }
     }
 }

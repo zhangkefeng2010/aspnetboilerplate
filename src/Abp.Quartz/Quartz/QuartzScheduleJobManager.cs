@@ -2,11 +2,11 @@
 using System.Threading.Tasks;
 using Abp.BackgroundJobs;
 using Abp.Dependency;
-using Abp.Quartz.Quartz.Configuration;
+using Abp.Quartz.Configuration;
 using Abp.Threading.BackgroundWorkers;
 using Quartz;
 
-namespace Abp.Quartz.Quartz
+namespace Abp.Quartz
 {
     public class QuartzScheduleJobManager : BackgroundWorkerBase, IQuartzScheduleJobManager, ISingletonDependency
     {
@@ -21,7 +21,7 @@ namespace Abp.Quartz.Quartz
             _backgroundJobConfiguration = backgroundJobConfiguration;
         }
 
-        public Task ScheduleAsync<TJob>(Action<JobBuilder> configureJob, Action<TriggerBuilder> configureTrigger)
+        public async Task ScheduleAsync<TJob>(Action<JobBuilder> configureJob, Action<TriggerBuilder> configureTrigger)
             where TJob : IJob
         {
             var jobToBuild = JobBuilder.Create<TJob>();
@@ -32,9 +32,21 @@ namespace Abp.Quartz.Quartz
             configureTrigger(triggerToBuild);
             var trigger = triggerToBuild.Build();
 
-            _quartzConfiguration.Scheduler.ScheduleJob(job, trigger);
+            await _quartzConfiguration.Scheduler.ScheduleJob(job, trigger);
+        }
 
-            return Task.FromResult(0);
+        public async Task RescheduleAsync(TriggerKey triggerKey, Action<TriggerBuilder> configureTrigger)
+        {
+            var triggerToBuild = TriggerBuilder.Create();
+            configureTrigger(triggerToBuild);
+            var trigger = triggerToBuild.Build();
+
+            await _quartzConfiguration.Scheduler.RescheduleJob(triggerKey, trigger);
+        }
+
+        public async Task UnscheduleAsync(TriggerKey triggerKey)
+        {
+            await _quartzConfiguration.Scheduler.UnscheduleJob(triggerKey);
         }
 
         public override void Start()

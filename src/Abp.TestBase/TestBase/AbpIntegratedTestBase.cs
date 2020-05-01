@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Abp.Dependency;
+using Abp.Domain.Uow;
 using Abp.Modules;
 using Abp.Runtime.Session;
 using Abp.TestBase.Runtime.Session;
@@ -10,7 +12,7 @@ namespace Abp.TestBase
     /// <summary>
     /// This is the base class for all tests integrated to ABP.
     /// </summary>
-    public abstract class AbpIntegratedTestBase<TStartupModule> : IDisposable 
+    public abstract class AbpIntegratedTestBase<TStartupModule> : IDisposable
         where TStartupModule : AbpModule
     {
         /// <summary>
@@ -25,10 +27,14 @@ namespace Abp.TestBase
         /// </summary>
         protected TestAbpSession AbpSession { get; private set; }
 
-        protected AbpIntegratedTestBase(bool initializeAbp = true)
+        protected AbpIntegratedTestBase(bool initializeAbp = true, IIocManager localIocManager = null)
         {
-            LocalIocManager = new IocManager();
-            AbpBootstrapper = AbpBootstrapper.Create<TStartupModule>(LocalIocManager);
+            LocalIocManager = localIocManager ?? new IocManager();
+
+            AbpBootstrapper = AbpBootstrapper.Create<TStartupModule>(options =>
+            {
+                options.IocManager = LocalIocManager;
+            });
 
             if (initializeAbp)
             {
@@ -136,6 +142,60 @@ namespace Abp.TestBase
                 }
 
                 LocalIocManager.Register(type, lifeStyle);
+            }
+        }
+
+        protected virtual void WithUnitOfWork(Action action, UnitOfWorkOptions options = null)
+        {
+            using (var uowManager = LocalIocManager.ResolveAsDisposable<IUnitOfWorkManager>())
+            {
+                using (var uow = uowManager.Object.Begin(options ?? new UnitOfWorkOptions()))
+                {
+                    action();
+                    uow.Complete();
+                }
+            }
+        }
+
+        protected virtual void WithUnitOfWork(int? tenantId, Action action, UnitOfWorkOptions options = null)
+        {
+            using (var uowManager = LocalIocManager.ResolveAsDisposable<IUnitOfWorkManager>())
+            {
+                using (var uow = uowManager.Object.Begin(options ?? new UnitOfWorkOptions()))
+                {
+                    using (uowManager.Object.Current.SetTenantId(tenantId))
+                    {
+                        action();
+                        uow.Complete();
+                    }
+                }
+            }
+        }
+
+        protected virtual async Task WithUnitOfWorkAsync(Func<Task> action, UnitOfWorkOptions options = null)
+        {
+            using (var uowManager = LocalIocManager.ResolveAsDisposable<IUnitOfWorkManager>())
+            {
+                using (var uow = uowManager.Object.Begin(options ?? new UnitOfWorkOptions()))
+                {
+                    await action();
+                    uow.Complete();
+                }
+            }
+        }
+
+        protected async Task WithUnitOfWorkAsync(int? tenantId, Func<Task> action, UnitOfWorkOptions options = null)
+        {
+            using (var uowManager = LocalIocManager.ResolveAsDisposable<IUnitOfWorkManager>())
+            {
+                using (var uow = uowManager.Object.Begin(options ?? new UnitOfWorkOptions()))
+                {
+                    using (uowManager.Object.Current.SetTenantId(tenantId))
+                    {
+                        await action();
+                        uow.Complete();
+                    }
+                }
             }
         }
     }

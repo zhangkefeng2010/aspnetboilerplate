@@ -1,19 +1,13 @@
-using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Net;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Abp.AspNetCore.App.Controllers;
 using Abp.AspNetCore.App.Models;
-using Abp.Configuration;
-using Abp.Configuration.Startup;
 using Abp.Events.Bus;
 using Abp.Events.Bus.Exceptions;
-using Abp.Localization;
 using Abp.UI;
 using Abp.Web.Models;
 using Microsoft.AspNetCore.Localization;
-using NSubstitute;
 using Shouldly;
 using Xunit;
 
@@ -170,7 +164,7 @@ namespace Abp.AspNetCore.Tests
             // Act
             var response = await GetResponseAsStringAsync(
                 GetUrl<SimpleTestController>(
-                    nameof(SimpleTestController.GetActionResultTestAsync)
+                    nameof(SimpleTestController.GetActionResultTest2)
                 ));
 
             //Assert
@@ -183,7 +177,7 @@ namespace Abp.AspNetCore.Tests
             // Act
             var response = await GetResponseAsObjectAsync<AjaxResponse>(
                 GetUrl<SimpleTestController>(
-                    nameof(SimpleTestController.GetVoidExceptionTestAsync)
+                    nameof(SimpleTestController.GetVoidExceptionTest)
                 ), HttpStatusCode.InternalServerError);
 
             response.Error.ShouldNotBeNull();
@@ -199,7 +193,7 @@ namespace Abp.AspNetCore.Tests
             {
                 await GetResponseAsStringAsync(
                     GetUrl<SimpleTestController>(
-                        nameof(SimpleTestController.GetActionResultExceptionTestAsync)
+                        nameof(SimpleTestController.GetActionResultExceptionTest)
                     ), HttpStatusCode.InternalServerError);
             })).Message.ShouldBe("GetActionResultExceptionTestAsync-Exception");
         }

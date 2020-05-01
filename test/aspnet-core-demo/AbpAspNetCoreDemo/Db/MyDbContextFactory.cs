@@ -1,24 +1,22 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+
 
 namespace AbpAspNetCoreDemo.Db
 {
-    public class MyDbContextFactory : IDbContextFactory<MyDbContext>
+    public class MyDbContextFactory : IDesignTimeDbContextFactory<MyDbContext>
     {
-        public MyDbContext Create(DbContextFactoryOptions options)
+        public MyDbContext CreateDbContext(string[] args)
         {
-            var builder = new ConfigurationBuilder()
-                .SetBasePath(options.ContentRootPath)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                .AddEnvironmentVariables();
-            var configuration = builder.Build();
-
+            var inMemorySqlite = new SqliteConnection("Data Source=:memory:");
             var opts = new DbContextOptionsBuilder<MyDbContext>()
-                .UseSqlServer(configuration.GetConnectionString("Default"))
+                .UseSqlite(inMemorySqlite)
                 .Options;
 
-            return new MyDbContext(opts);
+            var dbContext = new MyDbContext(opts);
+
+            return dbContext;
         }
     }
 }

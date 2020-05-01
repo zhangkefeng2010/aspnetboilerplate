@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Abp.Collections.Extensions;
+using JetBrains.Annotations;
 
 namespace Abp.Extensions
 {
@@ -38,7 +39,6 @@ namespace Abp.Extensions
             return str + c;
         }
 
-#if NET46
         /// <summary>
         /// Adds a char to end of given string if it does not ends with the char.
         /// </summary>
@@ -56,7 +56,6 @@ namespace Abp.Extensions
 
             return str + c;
         }
-#endif
 
         /// <summary>
         /// Adds a char to beginning of given string if it does not starts with the char.
@@ -84,7 +83,6 @@ namespace Abp.Extensions
             return c + str;
         }
 
-#if NET46
         /// <summary>
         /// Adds a char to beginning of given string if it does not starts with the char.
         /// </summary>
@@ -92,7 +90,7 @@ namespace Abp.Extensions
         {
             if (str == null)
             {
-                throw new ArgumentNullException("str");
+                throw new ArgumentNullException(nameof(str));
             }
 
             if (str.StartsWith(c.ToString(culture), ignoreCase, culture))
@@ -102,11 +100,11 @@ namespace Abp.Extensions
 
             return c + str;
         }
-#endif
 
         /// <summary>
         /// Indicates whether this string is null or an System.String.Empty string.
         /// </summary>
+        [ContractAnnotation("null => true")]
         public static bool IsNullOrEmpty(this string str)
         {
             return string.IsNullOrEmpty(str);
@@ -115,6 +113,7 @@ namespace Abp.Extensions
         /// <summary>
         /// indicates whether this string is null, empty, or consists only of white-space characters.
         /// </summary>
+        [ContractAnnotation("null => true")]
         public static bool IsNullOrWhiteSpace(this string str)
         {
             return string.IsNullOrWhiteSpace(str);
@@ -129,7 +128,7 @@ namespace Abp.Extensions
         {
             if (str == null)
             {
-                throw new ArgumentNullException("str");
+                throw new ArgumentNullException(nameof(str));
             }
 
             if (str.Length < len)
@@ -152,7 +151,7 @@ namespace Abp.Extensions
         /// Gets index of nth occurence of a char in a string.
         /// </summary>
         /// <param name="str">source string to be searched</param>
-        /// <param name="c">Char to search in <see cref="str"/></param>
+        /// <param name="c">Char to search in <paramref name="str"/></param>
         /// <param name="n">Count of the occurence</param>
         public static int NthIndexOf(this string str, char c, int n)
         {
@@ -180,6 +179,7 @@ namespace Abp.Extensions
 
         /// <summary>
         /// Removes first occurrence of the given postfixes from end of the given string.
+        /// Ordering is important. If one of the postFixes is matched, others will not be tested.
         /// </summary>
         /// <param name="str">The string.</param>
         /// <param name="postFixes">one or more postfix.</param>
@@ -191,7 +191,7 @@ namespace Abp.Extensions
                 return null;
             }
 
-            if (str == string.Empty)
+            if (string.IsNullOrEmpty(str))
             {
                 return string.Empty;
             }
@@ -214,6 +214,7 @@ namespace Abp.Extensions
 
         /// <summary>
         /// Removes first occurrence of the given prefixes from beginning of the given string.
+        /// Ordering is important. If one of the preFixes is matched, others will not be tested.
         /// </summary>
         /// <param name="str">The string.</param>
         /// <param name="preFixes">one or more prefix.</param>
@@ -225,7 +226,7 @@ namespace Abp.Extensions
                 return null;
             }
 
-            if (str == string.Empty)
+            if (string.IsNullOrEmpty(str))
             {
                 return string.Empty;
             }
@@ -255,7 +256,7 @@ namespace Abp.Extensions
         {
             if (str == null)
             {
-                throw new ArgumentNullException("str");
+                throw new ArgumentNullException(nameof(str));
             }
 
             if (str.Length < len)
@@ -319,7 +320,6 @@ namespace Abp.Extensions
             return (invariantCulture ? char.ToLowerInvariant(str[0]) : char.ToLower(str[0])) + str.Substring(1);
         }
 
-#if NET46
         /// <summary>
         /// Converts PascalCase string to camelCase string in specified culture.
         /// </summary>
@@ -340,7 +340,6 @@ namespace Abp.Extensions
 
             return char.ToLower(str[0], culture) + str.Substring(1);
         }
-#endif
 
         /// <summary>
         /// Converts given PascalCase/camelCase string to sentence (by splitting words by space).
@@ -362,7 +361,6 @@ namespace Abp.Extensions
             );
         }
 
-#if NET46
         /// <summary>
         /// Converts given PascalCase/camelCase string to sentence (by splitting words by space).
         /// Example: "ThisIsSampleSentence" is converted to "This is a sample sentence".
@@ -378,7 +376,6 @@ namespace Abp.Extensions
 
             return Regex.Replace(str, "[a-z][A-Z]", m => m.Value[0] + " " + char.ToLower(m.Value[1], culture));
         }
-#endif
 
         /// <summary>
         /// Converts string to enum value.
@@ -453,7 +450,6 @@ namespace Abp.Extensions
             return (invariantCulture ? char.ToUpperInvariant(str[0]) : char.ToUpper(str[0])) + str.Substring(1);
         }
 
-#if NET46
         /// <summary>
         /// Converts camelCase string to PascalCase string in specified culture.
         /// </summary>
@@ -474,7 +470,6 @@ namespace Abp.Extensions
 
             return char.ToUpper(str[0], culture) + str.Substring(1);
         }
-#endif
 
         /// <summary>
         /// Gets a substring of a string from beginning of the string if it exceeds maximum length.
@@ -519,7 +514,7 @@ namespace Abp.Extensions
                 return null;
             }
 
-            if (str == string.Empty || maxLength == 0)
+            if (string.IsNullOrEmpty(str) || maxLength == 0)
             {
                 return string.Empty;
             }

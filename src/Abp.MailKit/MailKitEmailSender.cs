@@ -2,10 +2,7 @@
 using Abp.Net.Mail;
 using MimeKit;
 using SmtpClient = MailKit.Net.Smtp.SmtpClient;
-
-#if NET46
 using System.Net.Mail;
-#endif
 
 namespace Abp.MailKit
 {
@@ -42,12 +39,11 @@ namespace Abp.MailKit
             }
         }
 
-#if NET46
         protected override async Task SendEmailAsync(MailMessage mail)
         {
             using (var client = BuildSmtpClient())
             {
-                var message = mail.ToMimeMessage();
+                var message = MimeMessage.CreateFromMailMessage(mail);
                 await client.SendAsync(message);
                 await client.DisconnectAsync(true);
             }
@@ -57,12 +53,11 @@ namespace Abp.MailKit
         {
             using (var client = BuildSmtpClient())
             {
-                var message = mail.ToMimeMessage();
+                var message = MimeMessage.CreateFromMailMessage(mail);
                 client.Send(message);
                 client.Disconnect(true);
             }
         }
-#endif
 
         protected virtual SmtpClient BuildSmtpClient()
         {

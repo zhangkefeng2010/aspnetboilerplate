@@ -10,38 +10,50 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
+using Abp.AspNetCore.ExceptionHandling;
+using Abp.AspNetCore.Security;
+using Abp.AspNetCore.Uow;
+using Microsoft.Extensions.Hosting;
 
 namespace Abp.AspNetCore
 {
-	public static class AbpApplicationBuilderExtensions
+    public static class AbpApplicationBuilderExtensions
     {
+        private const string AuthorizationExceptionHandlingMiddlewareMarker = "_AbpAuthorizationExceptionHandlingMiddleware_Added";
+
         public static void UseAbp(this IApplicationBuilder app)
         {
             app.UseAbp(null);
         }
 
-	    public static void UseAbp([NotNull] this IApplicationBuilder app, Action<AbpApplicationBuilderOptions> optionsAction)
-	    {
-		    Check.NotNull(app, nameof(app));
+        public static void UseAbp([NotNull] this IApplicationBuilder app, Action<AbpApplicationBuilderOptions> optionsAction)
+        {
+            Check.NotNull(app, nameof(app));
 
-	        var options = new AbpApplicationBuilderOptions();
+            var options = new AbpApplicationBuilderOptions();
             optionsAction?.Invoke(options);
 
             if (options.UseCastleLoggerFactory)
-		    {
-			    app.UseCastleLoggerFactory();
-			}
+            {
+                app.UseCastleLoggerFactory();
+            }
 
-			InitializeAbp(app);
+            InitializeAbp(app);
 
-		    if (options.UseAbpRequestLocalization)
-		    {
+            if (options.UseAbpRequestLocalization)
+            {
                 //TODO: This should be added later than authorization middleware!
-			    app.UseAbpRequestLocalization();
-		    }
-	    }
+                app.UseAbpRequestLocalization();
+            }
 
-		public static void UseEmbeddedFiles(this IApplicationBuilder app)
+            if (options.UseSecurityHeaders)
+            {
+                app.UseAbpSecurityHeaders();
+            }
+        }
+
+        public static void UseEmbeddedFiles(this IApplicationBuilder app)
         {
             app.UseStaticFiles(
                 new StaticFileOptions
@@ -57,6 +69,9 @@ namespace Abp.AspNetCore
         {
             var abpBootstrapper = app.ApplicationServices.GetRequiredService<AbpBootstrapper>();
             abpBootstrapper.Initialize();
+
+            var applicationLifetime = app.ApplicationServices.GetService<IHostApplicationLifetime>();
+            applicationLifetime.ApplicationStopping.Register(() => abpBootstrapper.Dispose());
         }
 
         public static void UseCastleLoggerFactory(this IApplicationBuilder app)
@@ -78,9 +93,17 @@ namespace Abp.AspNetCore
             using (var languageManager = iocResolver.ResolveAsDisposable<ILanguageManager>())
             {
                 var supportedCultures = languageManager.Object
-                    .GetLanguages()
-                    .Select(l => CultureInfoHelper.Get(l.Name))
+                    .GetActiveLanguages()
+                    .Select(l => CultureInfo.GetCultureInfo(l.Name))
                     .ToArray();
+
+                if (iocResolver.IsRegistered<ILogger<RequestLocalizationOptions>>())
+                {
+                    using (var logger = iocResolver.ResolveAsDisposable<ILogger<RequestLocalizationOptions>>())
+                    {
+                        logger.Object.LogInformation($"Supported Request Localization Cultures: {string.Join(",", supportedCultures.Select(c => c))}");
+                    }
+                }
 
                 var options = new RequestLocalizationOptions
                 {
@@ -89,13 +112,13 @@ namespace Abp.AspNetCore
                 };
 
                 var userProvider = new AbpUserRequestCultureProvider();
-                
+
                 //0: QueryStringRequestCultureProvider
                 options.RequestCultureProviders.Insert(1, userProvider);
                 options.RequestCultureProviders.Insert(2, new AbpLocalizationHeaderRequestCultureProvider());
                 //3: CookieRequestCultureProvider
-                options.RequestCultureProviders.Insert(4, new AbpDefaultRequestCultureProvider());
-                //5: AcceptLanguageHeaderRequestCultureProvider
+                //4: AcceptLanguageHeaderRequestCultureProvider
+                options.RequestCultureProviders.Insert(5, new AbpDefaultRequestCultureProvider());
 
                 optionsAction?.Invoke(options);
 
@@ -104,6 +127,28 @@ namespace Abp.AspNetCore
 
                 app.UseRequestLocalization(options);
             }
+        }
+
+        public static void UseAbpSecurityHeaders(this IApplicationBuilder app)
+        {
+            app.UseMiddleware<AbpSecurityHeadersMiddleware>();
+        }
+
+        public static IApplicationBuilder UseUnitOfWork(this IApplicationBuilder app)
+        {
+            return app
+                .UseMiddleware<AbpUnitOfWorkMiddleware>();
+        }
+
+        public static IApplicationBuilder UseAbpAuthorizationExceptionHandling(this IApplicationBuilder app)
+        {
+            if (app.Properties.ContainsKey(AuthorizationExceptionHandlingMiddlewareMarker))
+            {
+                return app;
+            }
+
+            app.Properties[AuthorizationExceptionHandlingMiddlewareMarker] = true;
+            return app.UseMiddleware<AbpAuthorizationExceptionHandlingMiddleware>();
         }
     }
 }

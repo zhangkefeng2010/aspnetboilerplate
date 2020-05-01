@@ -1,13 +1,20 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Abp.Collections.Extensions;
+using Abp.Data;
 using Abp.Domain.Entities;
 using Abp.Domain.Repositories;
+using Abp.Reflection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Internal;
 
 namespace Abp.EntityFrameworkCore.Repositories
 {
@@ -35,6 +42,57 @@ namespace Abp.EntityFrameworkCore.Repositories
         /// </summary>
         public virtual DbSet<TEntity> Table => Context.Set<TEntity>();
 
+        /// <summary>
+        /// Gets DbQuery for given entity.
+        /// </summary>
+        public virtual DbSet<TEntity> DbQueryTable => Context.Set<TEntity>();
+
+        private static readonly ConcurrentDictionary<Type, bool> EntityIsDbQuery =
+            new ConcurrentDictionary<Type, bool>();
+
+        protected virtual IQueryable<TEntity> GetQueryable()
+        {
+            if (EntityIsDbQuery.GetOrAdd(typeof(TEntity), key => Context.GetType().GetProperties().Any(property =>
+                    ReflectionHelper.IsAssignableToGenericType(property.PropertyType, typeof(DbQuery<>)) &&
+                    ReflectionHelper.IsAssignableToGenericType(property.PropertyType.GenericTypeArguments[0],
+                        typeof(IEntity<>)) &&
+                    property.PropertyType.GetGenericArguments().Any(x => x == typeof(TEntity)))))
+            {
+                return DbQueryTable.AsQueryable();
+            }
+
+            return Table.AsQueryable();
+        }
+
+        public virtual DbTransaction Transaction
+        {
+            get
+            {
+                return (DbTransaction) TransactionProvider?.GetActiveTransaction(new ActiveTransactionProviderArgs
+                {
+                    {"ContextType", typeof(TDbContext) },
+                    {"MultiTenancySide", MultiTenancySide }
+                });
+            }
+        }
+
+        public virtual DbConnection Connection
+        {
+            get
+            {
+                var connection = Context.Database.GetDbConnection();
+
+                if (connection.State != ConnectionState.Open)
+                {
+                    connection.Open();
+                }
+
+                return connection;
+            }
+        }
+
+        public IActiveTransactionProvider TransactionProvider { private get; set; }
+        
         private readonly IDbContextProvider<TDbContext> _dbContextProvider;
 
         /// <summary>
@@ -53,7 +111,7 @@ namespace Abp.EntityFrameworkCore.Repositories
 
         public override IQueryable<TEntity> GetAllIncluding(params Expression<Func<TEntity, object>>[] propertySelectors)
         {
-            var query = Table.AsQueryable();
+            var query = GetQueryable();
 
             if (!propertySelectors.IsNullOrEmpty())
             {
@@ -63,34 +121,32 @@ namespace Abp.EntityFrameworkCore.Repositories
                 }
             }
 
-            query = ApplyFilters(query);
-
             return query;
         }
 
         public override async Task<List<TEntity>> GetAllListAsync()
         {
-            return await GetAll().ToListAsync();
+            return await GetAll().ToListAsync(CancellationTokenProvider.Token);
         }
 
         public override async Task<List<TEntity>> GetAllListAsync(Expression<Func<TEntity, bool>> predicate)
         {
-            return await GetAll().Where(predicate).ToListAsync();
+            return await GetAll().Where(predicate).ToListAsync(CancellationTokenProvider.Token);
         }
 
         public override async Task<TEntity> SingleAsync(Expression<Func<TEntity, bool>> predicate)
         {
-            return await GetAll().SingleAsync(predicate);
+            return await GetAll().SingleAsync(predicate, CancellationTokenProvider.Token);
         }
 
         public override async Task<TEntity> FirstOrDefaultAsync(TPrimaryKey id)
         {
-            return await GetAll().FirstOrDefaultAsync(CreateEqualityExpressionForId(id));
+            return await GetAll().FirstOrDefaultAsync(CreateEqualityExpressionForId(id), CancellationTokenProvider.Token);
         }
 
         public override async Task<TEntity> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate)
         {
-            return await GetAll().FirstOrDefaultAsync(predicate);
+            return await GetAll().FirstOrDefaultAsync(predicate, CancellationTokenProvider.Token);
         }
 
         public override TEntity Insert(TEntity entity)
@@ -107,7 +163,7 @@ namespace Abp.EntityFrameworkCore.Repositories
         {
             entity = Insert(entity);
 
-            if (entity.IsTransient())
+            if (MayHaveTemporaryKey(entity) || entity.IsTransient())
             {
                 Context.SaveChanges();
             }
@@ -119,9 +175,9 @@ namespace Abp.EntityFrameworkCore.Repositories
         {
             entity = await InsertAsync(entity);
 
-            if (entity.IsTransient())
+            if (MayHaveTemporaryKey(entity) || entity.IsTransient())
             {
-                await Context.SaveChangesAsync();
+                await Context.SaveChangesAsync(CancellationTokenProvider.Token);
             }
 
             return entity.Id;
@@ -131,7 +187,7 @@ namespace Abp.EntityFrameworkCore.Repositories
         {
             entity = InsertOrUpdate(entity);
 
-            if (entity.IsTransient())
+            if (MayHaveTemporaryKey(entity) || entity.IsTransient())
             {
                 Context.SaveChanges();
             }
@@ -143,9 +199,9 @@ namespace Abp.EntityFrameworkCore.Repositories
         {
             entity = await InsertOrUpdateAsync(entity);
 
-            if (entity.IsTransient())
+            if (MayHaveTemporaryKey(entity) || entity.IsTransient())
             {
-                await Context.SaveChangesAsync();
+                await Context.SaveChangesAsync(CancellationTokenProvider.Token);
             }
 
             return entity.Id;
@@ -160,8 +216,7 @@ namespace Abp.EntityFrameworkCore.Repositories
 
         public override Task<TEntity> UpdateAsync(TEntity entity)
         {
-            AttachIfNot(entity);
-            Context.Entry(entity).State = EntityState.Modified;
+            entity = Update(entity);
             return Task.FromResult(entity);
         }
 
@@ -192,22 +247,22 @@ namespace Abp.EntityFrameworkCore.Repositories
 
         public override async Task<int> CountAsync()
         {
-            return await GetAll().CountAsync();
+            return await GetAll().CountAsync(CancellationTokenProvider.Token);
         }
 
         public override async Task<int> CountAsync(Expression<Func<TEntity, bool>> predicate)
         {
-            return await GetAll().Where(predicate).CountAsync();
+            return await GetAll().Where(predicate).CountAsync(CancellationTokenProvider.Token);
         }
 
         public override async Task<long> LongCountAsync()
         {
-            return await GetAll().LongCountAsync();
+            return await GetAll().LongCountAsync(CancellationTokenProvider.Token);
         }
 
         public override async Task<long> LongCountAsync(Expression<Func<TEntity, bool>> predicate)
         {
-            return await GetAll().Where(predicate).LongCountAsync();
+            return await GetAll().Where(predicate).LongCountAsync(CancellationTokenProvider.Token);
         }
 
         protected virtual void AttachIfNot(TEntity entity)
@@ -226,13 +281,40 @@ namespace Abp.EntityFrameworkCore.Repositories
             return Context;
         }
 
-        public Task EnsureLoadedAsync<TProperty>(
-            TEntity entity, 
-            Expression<Func<TEntity, IEnumerable<TProperty>>> propertyExpression, 
+        public Task EnsureCollectionLoadedAsync<TProperty>(
+            TEntity entity,
+            Expression<Func<TEntity, IEnumerable<TProperty>>> collectionExpression,
             CancellationToken cancellationToken)
             where TProperty : class
         {
-            return Context.Entry(entity).Collection(propertyExpression).LoadAsync(cancellationToken);
+            return Context.Entry(entity).Collection(collectionExpression).LoadAsync(cancellationToken);
+        }
+
+        public void EnsureCollectionLoaded<TProperty>(
+            TEntity entity,
+            Expression<Func<TEntity, IEnumerable<TProperty>>> collectionExpression,
+            CancellationToken cancellationToken)
+            where TProperty : class
+        {
+            Context.Entry(entity).Collection(collectionExpression).Load();
+        }
+
+        public Task EnsurePropertyLoadedAsync<TProperty>(
+            TEntity entity,
+            Expression<Func<TEntity, TProperty>> propertyExpression,
+            CancellationToken cancellationToken)
+            where TProperty : class
+        {
+            return Context.Entry(entity).Reference(propertyExpression).LoadAsync(cancellationToken);
+        }
+
+        public void EnsurePropertyLoaded<TProperty>(
+            TEntity entity,
+            Expression<Func<TEntity, TProperty>> propertyExpression,
+            CancellationToken cancellationToken)
+            where TProperty : class
+        {
+            Context.Entry(entity).Reference(propertyExpression).Load();
         }
 
         private TEntity GetFromChangeTrackerOrNull(TPrimaryKey id)
@@ -245,6 +327,26 @@ namespace Abp.EntityFrameworkCore.Repositories
                 );
 
             return entry?.Entity as TEntity;
+        }
+
+        private static bool MayHaveTemporaryKey(TEntity entity)
+        {
+            if (typeof(TPrimaryKey) == typeof(byte))
+            {
+                return true;
+            }
+
+            if (typeof(TPrimaryKey) == typeof(int))
+            {
+                return Convert.ToInt32(entity.Id) <= 0;
+            }
+
+            if (typeof(TPrimaryKey) == typeof(long))
+            {
+                return Convert.ToInt64(entity.Id) <= 0;
+            }
+
+            return false;
         }
     }
 }

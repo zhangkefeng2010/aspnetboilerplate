@@ -10,14 +10,20 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Abp.AspNetCore.Mvc.Providers;
+using Abp.AspNetCore.Webhook;
 using Abp.Json;
 using Abp.Modules;
+using JetBrains.Annotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
-using Microsoft.AspNetCore.Mvc.ViewFeatures.Internal;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Serialization;
+using Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 namespace Abp.AspNetCore
 {
@@ -28,34 +34,29 @@ namespace Abp.AspNetCore
         /// </summary>
         /// <typeparam name="TStartupModule">Startup module of the application which depends on other used modules. Should be derived from <see cref="AbpModule"/>.</typeparam>
         /// <param name="services">Services.</param>
-        public static IServiceProvider AddAbp<TStartupModule>(this IServiceCollection services)
+        /// <param name="optionsAction">An action to get/modify options</param>
+        public static IServiceProvider AddAbp<TStartupModule>(this IServiceCollection services, [CanBeNull] Action<AbpBootstrapperOptions> optionsAction = null)
             where TStartupModule : AbpModule
         {
-            return services.AddAbp<TStartupModule>(options => { });
+            var abpBootstrapper = AddAbpBootstrapper<TStartupModule>(services, optionsAction);
+
+            ConfigureAspNetCore(services, abpBootstrapper.IocManager);
+
+            return WindsorRegistrationHelper.CreateServiceProvider(abpBootstrapper.IocManager.IocContainer, services);
         }
 
         /// <summary>
-        /// Integrates ABP to AspNet Core.
+        /// Integrates ABP to AspNet Core without creating a IServiceProvider.
         /// </summary>
         /// <typeparam name="TStartupModule">Startup module of the application which depends on other used modules. Should be derived from <see cref="AbpModule"/>.</typeparam>
         /// <param name="services">Services.</param>
         /// <param name="optionsAction">An action to get/modify options</param>
-        public static IServiceProvider AddAbp<TStartupModule>(this IServiceCollection services, Action<AbpServiceOptions> optionsAction)
+        public static void AddAbpWithoutCreatingServiceProvider<TStartupModule>(this IServiceCollection services, [CanBeNull] Action<AbpBootstrapperOptions> optionsAction = null)
             where TStartupModule : AbpModule
         {
-            var options = new AbpServiceOptions
-            {
-                IocManager = IocManager.Instance
-            };
+            var abpBootstrapper = AddAbpBootstrapper<TStartupModule>(services, optionsAction);
 
-            optionsAction(options);
-
-            ConfigureAspNetCore(services, options.IocManager);
-
-            var abpBootstrapper = AddAbpBootstrapper<TStartupModule>(services, options.IocManager);
-            abpBootstrapper.PlugInSources.AddRange(options.PlugInSources);
-            
-            return WindsorRegistrationHelper.CreateServiceProvider(abpBootstrapper.IocManager.IocContainer, services);
+            ConfigureAspNetCore(services, abpBootstrapper.IocManager);
         }
 
         private static void ConfigureAspNetCore(IServiceCollection services, IIocResolver iocResolver)
@@ -63,25 +64,27 @@ namespace Abp.AspNetCore
             //See https://github.com/aspnet/Mvc/issues/3936 to know why we added these services.
             services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             services.TryAddSingleton<IActionContextAccessor, ActionContextAccessor>();
-            
+
             //Use DI to create controllers
             services.Replace(ServiceDescriptor.Transient<IControllerActivator, ServiceBasedControllerActivator>());
+
+            //Use DI to create page models
+            services.Replace(ServiceDescriptor.Singleton<IPageModelActivatorProvider, ServiceBasedPageModelActivatorProvider>());
 
             //Use DI to create view components
             services.Replace(ServiceDescriptor.Singleton<IViewComponentActivator, ServiceBasedViewComponentActivator>());
 
-            //Change anti forgery filters (to work proper with non-browser clients)
-            services.Replace(ServiceDescriptor.Transient<AutoValidateAntiforgeryTokenAuthorizationFilter, AbpAutoValidateAntiforgeryTokenAuthorizationFilter>());
-            services.Replace(ServiceDescriptor.Transient<ValidateAntiforgeryTokenAuthorizationFilter, AbpValidateAntiforgeryTokenAuthorizationFilter>());
-
             //Add feature providers
             var partManager = services.GetSingletonServiceOrNull<ApplicationPartManager>();
-            partManager.FeatureProviders.Add(new AbpAppServiceControllerFeatureProvider(iocResolver));
+            partManager?.FeatureProviders.Add(new AbpAppServiceControllerFeatureProvider(iocResolver));
 
             //Configure JSON serializer
-            services.Configure<MvcJsonOptions>(jsonOptions =>
+            services.Configure<MvcNewtonsoftJsonOptions>(jsonOptions =>
             {
-                jsonOptions.SerializerSettings.Converters.Insert(0, new AbpDateTimeConverter());
+                jsonOptions.SerializerSettings.ContractResolver = new AbpMvcContractResolver(iocResolver)
+                {
+                    NamingStrategy = new CamelCaseNamingStrategy()
+                };
             });
 
             //Configure MVC
@@ -92,8 +95,8 @@ namespace Abp.AspNetCore
 
             //Configure Razor
             services.Insert(0,
-                ServiceDescriptor.Singleton<IConfigureOptions<RazorViewEngineOptions>>(
-                    new ConfigureOptions<RazorViewEngineOptions>(
+                ServiceDescriptor.Singleton<IConfigureOptions<MvcRazorRuntimeCompilationOptions>>(
+                    new ConfigureOptions<MvcRazorRuntimeCompilationOptions>(
                         (options) =>
                         {
                             options.FileProviders.Add(new EmbeddedResourceViewFileProvider(iocResolver));
@@ -101,12 +104,14 @@ namespace Abp.AspNetCore
                     )
                 )
             );
+
+            services.AddHttpClient(AspNetCoreWebhookSender.WebhookSenderHttpClientName);
         }
 
-        private static AbpBootstrapper AddAbpBootstrapper<TStartupModule>(IServiceCollection services, IIocManager iocManager)
+        private static AbpBootstrapper AddAbpBootstrapper<TStartupModule>(IServiceCollection services, Action<AbpBootstrapperOptions> optionsAction)
             where TStartupModule : AbpModule
         {
-            var abpBootstrapper = AbpBootstrapper.Create<TStartupModule>(iocManager);
+            var abpBootstrapper = AbpBootstrapper.Create<TStartupModule>(optionsAction);
             services.AddSingleton(abpBootstrapper);
             return abpBootstrapper;
         }

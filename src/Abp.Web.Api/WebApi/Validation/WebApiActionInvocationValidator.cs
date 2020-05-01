@@ -4,39 +4,28 @@ using System.Web.Http.Controllers;
 using Abp.Collections.Extensions;
 using Abp.Configuration.Startup;
 using Abp.Dependency;
-using Abp.Runtime.Validation.Interception;
+using Abp.Web.Validation;
 
 namespace Abp.WebApi.Validation
 {
-    public class WebApiActionInvocationValidator : MethodInvocationValidator
+    public class WebApiActionInvocationValidator : ActionInvocationValidatorBase
     {
         protected HttpActionContext ActionContext { get; private set; }
-
-        private bool _isValidatedBefore;
 
         public WebApiActionInvocationValidator(IValidationConfiguration configuration, IIocResolver iocResolver)
             : base(configuration, iocResolver)
         {
-
         }
 
         public void Initialize(HttpActionContext actionContext, MethodInfo methodInfo)
         {
-            base.Initialize(
-                methodInfo,
-                GetParameterValues(actionContext, methodInfo)
-            );
-
             ActionContext = actionContext;
+
+            base.Initialize(methodInfo);
         }
 
-        protected override void SetDataAnnotationAttributeErrors(object validatingObject)
+        protected override void SetDataAnnotationAttributeErrors()
         {
-            if (_isValidatedBefore || ActionContext.ModelState.IsValid)
-            {
-                return;
-            }
-
             foreach (var state in ActionContext.ModelState)
             {
                 foreach (var error in state.Value.Errors)
@@ -44,21 +33,11 @@ namespace Abp.WebApi.Validation
                     ValidationErrors.Add(new ValidationResult(error.ErrorMessage, new[] { state.Key }));
                 }
             }
-
-            _isValidatedBefore = true;
         }
 
-        protected virtual object[] GetParameterValues(HttpActionContext actionContext, MethodInfo methodInfo)
+        protected override object GetParameterValue(string parameterName)
         {
-            var parameters = methodInfo.GetParameters();
-            var parameterValues = new object[parameters.Length];
-
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                parameterValues[i] = actionContext.ActionArguments.GetOrDefault(parameters[i].Name);
-            }
-
-            return parameterValues;
+            return ActionContext.ActionArguments.GetOrDefault(parameterName);
         }
     }
 }

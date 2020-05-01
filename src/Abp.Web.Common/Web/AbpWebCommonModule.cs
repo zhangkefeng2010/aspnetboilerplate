@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using Abp.Configuration.Startup;
+﻿using Abp.Configuration.Startup;
 using Abp.Localization.Dictionaries;
 using Abp.Localization.Dictionaries.Xml;
 using Abp.Modules;
@@ -9,6 +8,7 @@ using Abp.Web.Configuration;
 using Abp.Web.MultiTenancy;
 using Abp.Web.Security.AntiForgery;
 using Abp.Reflection.Extensions;
+using Abp.Web.Minifier;
 
 namespace Abp.Web
 {
@@ -26,6 +26,7 @@ namespace Abp.Web
             IocManager.Register<IAbpAntiForgeryConfiguration, AbpAntiForgeryConfiguration>();
             IocManager.Register<IWebEmbeddedResourcesConfiguration, WebEmbeddedResourcesConfiguration>();
             IocManager.Register<IAbpWebCommonModuleConfiguration, AbpWebCommonModuleConfiguration>();
+            IocManager.Register<IJavaScriptMinifier, NUglifyJavaScriptMinifier>();
 
             Configuration.Modules.AbpWebCommon().ApiProxyScripting.Generators[JQueryProxyScriptGenerator.Name] = typeof(JQueryProxyScriptGenerator);
 
